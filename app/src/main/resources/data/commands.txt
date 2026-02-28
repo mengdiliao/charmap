@@ -1,0 +1,3 @@
+./gradlew run --args="src/main/resources/data/inputs/countries.txt src/main/resources/data/outputs/countries_output.txt Germany 5 3"
+./gradlew run --args="src/main/resources/data/inputs/product_codes.txt src/main/resources/data/outputs/product_codes_output.txt DX-4002 4 4"
+./gradlew run --args="src/main/resources/data/inputs/usernames.txt src/main/resources/data/outputs/usernames_output.txt root_admin 5 3"
