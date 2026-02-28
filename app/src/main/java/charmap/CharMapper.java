@@ -1,5 +1,5 @@
 package charmap;
-final class AlphabetMapper {
+final class CharMapper {
 
     static int map(char c) {
         if (c >= 'A' && c <= 'Z') return c - 'A';

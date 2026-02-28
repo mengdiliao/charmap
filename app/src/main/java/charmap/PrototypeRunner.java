@@ -1,83 +1,75 @@
 package charmap;
-import java.io.*;
 import java.nio.file.*;
 import java.util.List;
 
 public class PrototypeRunner {
 
-    // Entry point for the prototype runner
-    // Usage: ./gradlew run --args="PrototypeRunner <inputFile> <outputFile> <queryString> <partitionSize> <maxTrackedLength>
+    // Entry point for the prototype runner with strategy dispatch
+    // Usage for charmap:
+    //   ./gradlew run --args="PrototypeRunner charmap <inputFile> <outputFile> <queryString> <partitionSize> <maxTrackedLength>"
+    // Usage for minmax:
+    //   ./gradlew run --args="PrototypeRunner minmax <inputFile> <outputFile> <queryString> <partitionSize>"
     public static void main(String[] args) throws Exception {
+        if (args.length < 1) {
+            throw new IllegalArgumentException("Usage: PrototypeRunner <strategy> [args...]\n" +
+                    "Strategies: charmap, minmax");
+        }
 
-        Path input = Paths.get(args[0]);
-        Path output = Paths.get(args[1]);
-        String query = args[2];
-        int P = Integer.parseInt(args[3]);
-        int LMAX = Integer.parseInt(args[4]);
+        String strategy = args[0];
 
-        CharacterMapIndex index = new CharacterMapIndex(P, LMAX);
+        if ("charmap".equalsIgnoreCase(strategy)) {
+            runCharmapStrategy(args);
+        } else if ("minmax".equalsIgnoreCase(strategy)) {
+            runMinmaxStrategy(args);
+        } else {
+            throw new IllegalArgumentException("Unknown strategy: " + strategy + ". Use 'charmap' or 'minmax'.");
+        }
+    }
+
+    private static void runCharmapStrategy(String[] args) throws Exception {
+        if (args.length < 6) {
+            throw new IllegalArgumentException("Charmap strategy requires: charmap <inputFile> <outputFile> <queryString> <partitionSize> <maxTrackedLength>");
+        }
+
+        Path input = Paths.get(args[1]);
+        Path output = Paths.get(args[2]);
+        String query = args[3];
+        int P = Integer.parseInt(args[4]);
+        int LMAX = Integer.parseInt(args[5]);
+
+        CharmapIndex index = new CharmapIndex(P, LMAX);
         index.build(input);
 
-        List<PartitionSummary> summaries = index.getSummaries();
+        List<CharmapSummary> summaries = index.getSummaries();
         boolean[] keep = new boolean[summaries.size()];
 
         for (int i = 0; i < summaries.size(); i++) {
-            keep[i] = mayContain(summaries.get(i), query, LMAX);
+            keep[i] = summaries.get(i).mayContain(query);
         }
 
-        filterAndWrite(input, output, keep, P);
-    }
-    
-    // Check if the partition summary may contain the query string
-    static boolean mayContain(PartitionSummary ps, String query, int LMAX) {
-
-        for (int i = 0; i < Math.min(query.length(), LMAX); i++) {
-            int idx = AlphabetMapper.map(query.charAt(i));
-
-            //1L << idx creates a bitmask with only the bit at position idx set to 1.
-            if ((ps.charSet[i] & (1L << idx)) == 0)
-                return false;  // definite absence
-        }
-        return true;
+        PartitionFilter.filterAndWrite(input, output, keep, P);
     }
 
-    // Core filtering and writing logic
-    static void filterAndWrite(Path input, Path output, boolean[] keep, int P) throws IOException {
-
-        try (BufferedReader br = getInputReader(input);
-             BufferedWriter bw = getOutputWriter(output)) {
-
-            int lineIndex = 0;
-
-            for (String line; (line = br.readLine()) != null; ) {
-                int partitionId = lineIndex / P;
-                boolean keepPartition = (partitionId < keep.length) ? keep[partitionId] : true;
-
-                if (keepPartition) {
-                    bw.write(line);
-                    bw.newLine();
-                }
-
-                lineIndex++;
-            }
+    private static void runMinmaxStrategy(String[] args) throws Exception {
+        if (args.length < 5) {
+            throw new IllegalArgumentException("MinMax strategy requires: minmax <inputFile> <outputFile> <queryString> <partitionSize>");
         }
-    }
 
-    // Read from input source 
-    static BufferedReader getInputReader(Path input) throws IOException {
-        if (input != null) {
-            return Files.newBufferedReader(input);
-        } else {
-            return new BufferedReader(new InputStreamReader(System.in));
-        }
-    }
+        Path input = Paths.get(args[1]);
+        Path output = Paths.get(args[2]);
+        String query = args[3];
+        int P = Integer.parseInt(args[4]);
 
-    // Write to output destination 
-    static BufferedWriter getOutputWriter(Path output) throws IOException {
-        if (output != null) {
-            return Files.newBufferedWriter(output);
-        } else {
-            return new BufferedWriter(new OutputStreamWriter(System.out));
+        MinMaxIndex index = new MinMaxIndex(P);
+        index.build(input);
+
+        List<MinMaxSummary> summaries = index.getSummaries();
+        boolean[] keep = new boolean[summaries.size()];
+
+        for (int i = 0; i < summaries.size(); i++) {
+            keep[i] = summaries.get(i).mayContain(query);
         }
+
+        PartitionFilter.filterAndWrite(input, output, keep, P);
     }
 }
