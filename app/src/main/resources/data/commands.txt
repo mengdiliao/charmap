@@ -27,3 +27,6 @@
 
 ./gradlew run --args="charmap src/main/resources/data/inputs/structured_codes.txt src/main/resources/data/charmap_outputs/structured_codes_output.txt AB-1001 7 2"
 ./gradlew run --args="minmax src/main/resources/data/inputs/structured_codes.txt src/main/resources/data/minmax_outputs/structured_codes_output.txt AB-1001 7"
+
+./gradlew :app:run -PmainClass=charmap.IpPrecomputeRunner
+./gradlew :app:run -PmainClass=charmap.IpQueryRunner

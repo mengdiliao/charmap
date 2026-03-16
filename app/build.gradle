@@ -31,8 +31,8 @@ dependencies {
 }
 
 application {
-    // Define the main class for the application.
-    mainClass = 'charmap.PrototypeRunner'
+    // Default main class; override with -PmainClass=charmap.IpPrecomputeRunner etc.
+    mainClass = project.findProperty('mainClass') ?: 'charmap.PrototypeRunner'
 }
 
 tasks.named('test') {
