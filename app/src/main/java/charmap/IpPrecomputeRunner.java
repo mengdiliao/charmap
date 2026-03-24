@@ -8,12 +8,18 @@ import java.util.List;
 /**
  * Precompute runner for the IP address experiment.
  *
- * Reads build_addresses.txt, strips dots (tracking only the 12 digit positions),
- * and builds MinMax and Charmap indexes for each partition size.
+ * Reads build_addresses.txt, parses IP addresses into 4 numeric segments (0-255 each),
+ * and precomputes both MinMax and Charmap (Saturation) indexes.
  *
  * Output format:
- *   MinMax:  line 1 = P value, then each line = "minValue maxValue" per partition
- *   Charmap: line 1 = P value, line 2 = LMAX value, then each line = charSet bitmasks per partition
+ *   MinMax:  line 1 = P value
+ *            then for each partition: "min0 max0 | min1 max1 | min2 max2 | min3 max3"
+ *            (min/max values for each segment)
+ *
+ *   Charmap: line 1 = P value, line 2 = LMAX value
+ *            then for each partition: saturation_indices | segment_charsets
+ *            saturation_indices: "idx0 idx1 idx2 idx3" (address index that causes saturation, -1 if none)
+ *            segment_charsets: charset0|charset1|charset2|charset3 (space-separated values per segment)
  *
  * Run with:
  *   ./gradlew :app:run -PmainClass=charmap.IpPrecomputeRunner
@@ -29,54 +35,58 @@ public class IpPrecomputeRunner {
         Path outputDir = baseDir.resolve("ip_experiment/precompute");
         Files.createDirectories(outputDir);
 
-        System.out.println("Reading build addresses from: " + buildFile);
-        List<String> lines = readAndStripDots(buildFile);
-        System.out.println("Loaded " + lines.size() + " addresses (dots stripped).");
+        System.out.println("Reading IP addresses from: " + buildFile);
+        List<int[]> addresses = readAsIPSegments(buildFile);
+        System.out.println("Loaded " + addresses.size() + " IP addresses.");
 
         for (int P : PARTITION_SIZES) {
             System.out.println("\n--- P = " + P + " ---");
-            precomputeMinMax(lines, P, outputDir);
-            precomputeCharmap(lines, P, LMAX, outputDir);
+            precomputeIpSegmentMinMax(addresses, P, outputDir);
+            precomputeIpSegmentSaturation(addresses, P, LMAX, outputDir);
         }
 
         System.out.println("\nPrecompute phase complete.");
     }
 
-    private static void precomputeMinMax(List<String> lines, int P, Path outputDir) throws IOException {
-        List<MinMaxSummary> summaries = new ArrayList<>();
-        MinMaxSummary current = null;
+    private static void precomputeIpSegmentMinMax(List<int[]> addresses, int P, Path outputDir) throws IOException {
+        List<IpSegmentMinMaxSummary> summaries = new ArrayList<>();
+        IpSegmentMinMaxSummary current = null;
 
-        for (int i = 0; i < lines.size(); i++) {
+        for (int i = 0; i < addresses.size(); i++) {
             if (i % P == 0) {
-                current = new MinMaxSummary();
+                current = new IpSegmentMinMaxSummary();
                 summaries.add(current);
             }
-            current.update(lines.get(i));
+            current.update(addresses.get(i), i % P);  // Pass relative index within partition
         }
 
         Path outFile = outputDir.resolve("minmax_P" + P + ".txt");
         try (BufferedWriter bw = Files.newBufferedWriter(outFile)) {
             bw.write("P=" + P);
             bw.newLine();
-            for (MinMaxSummary s : summaries) {
-                bw.write(s.minValue + " " + s.maxValue);
+            for (IpSegmentMinMaxSummary s : summaries) {
+                // Line 1 of partition data: saturation indices
+                bw.write(s.getSaturationIndicesAsString());
+                bw.newLine();
+                // Line 2 of partition data: min/max values
+                bw.write(s.getMinMaxAsString());
                 bw.newLine();
             }
         }
 
-        System.out.println("  MinMax index (" + summaries.size() + " partitions) -> " + outFile);
+        System.out.println("  IP Segment MinMax (" + summaries.size() + " partitions) -> " + outFile);
     }
 
-    private static void precomputeCharmap(List<String> lines, int P, int lmax, Path outputDir) throws IOException {
-        List<CharmapSummary> summaries = new ArrayList<>();
-        CharmapSummary current = null;
+    private static void precomputeIpSegmentSaturation(List<int[]> addresses, int P, int lmax, Path outputDir) throws IOException {
+        List<IpSegmentSaturationSummary> summaries = new ArrayList<>();
+        IpSegmentSaturationSummary current = null;
 
-        for (int i = 0; i < lines.size(); i++) {
+        for (int i = 0; i < addresses.size(); i++) {
             if (i % P == 0) {
-                current = new CharmapSummary(lmax);
+                current = new IpSegmentSaturationSummary();
                 summaries.add(current);
             }
-            current.update(lines.get(i));
+            current.update(addresses.get(i), i % P);  // Pass relative index within partition
         }
 
         Path outFile = outputDir.resolve("charmap_P" + P + "_LMAX" + lmax + ".txt");
@@ -85,57 +95,50 @@ public class IpPrecomputeRunner {
             bw.newLine();
             bw.write("LMAX=" + lmax);
             bw.newLine();
-            for (CharmapSummary s : summaries) {
-                StringBuilder sb = new StringBuilder();
-                for (int j = 0; j < s.charSet.length; j++) {
-                    if (j > 0) sb.append(" ");
-                    sb.append(bitmaskToCharset(s.charSet[j]));
-                }
-                bw.write(sb.toString());
+            
+            for (IpSegmentSaturationSummary s : summaries) {
+                // Line 1 of partition data: saturation indices
+                bw.write(s.getSaturationIndicesAsString());
+                bw.newLine();
+                // Line 2 of partition data: segment charsets
+                bw.write(s.getAllCharsetsAsString());
                 bw.newLine();
             }
         }
 
-        System.out.println("  Charmap index (" + summaries.size() + " partitions) -> " + outFile);
+        System.out.println("  IP Segment Saturation (" + summaries.size() + " partitions) -> " + outFile);
     }
 
-    /** Convert a bitmask to a string of characters that were present. */
-    static String bitmaskToCharset(long mask) {
-        StringBuilder sb = new StringBuilder();
-        // Uppercase: bits 0-25
-        for (int i = 0; i < 26; i++) {
-            if ((mask & (1L << i)) != 0) {
-                sb.append((char) ('A' + i));
-            }
-        }
-        // Lowercase: bits 26-51
-        for (int i = 0; i < 26; i++) {
-            if ((mask & (1L << (26 + i))) != 0) {
-                sb.append((char) ('a' + i));
-            }
-        }
-        // Digits: bits 52-61
-        for (int i = 0; i < 10; i++) {
-            if ((mask & (1L << (52 + i))) != 0) {
-                sb.append((char) ('0' + i));
-            }
-        }
-        // Special: bits 62-63 (_ and -)
-        if ((mask & (1L << 62)) != 0) sb.append('_');
-        if ((mask & (1L << 63)) != 0) sb.append('-');
-        return sb.toString();
-    }
-
-    /** Read lines from file, stripping dots to get 12-digit strings. */
-    static List<String> readAndStripDots(Path file) throws IOException {
-        List<String> lines = new ArrayList<>();
+    /** Read IP addresses from file and parse into 4 numeric segments (0-255 each). */
+    static List<int[]> readAsIPSegments(Path file) throws IOException {
+        List<int[]> addresses = new ArrayList<>();
         try (BufferedReader br = Files.newBufferedReader(file)) {
             String line;
             while ((line = br.readLine()) != null) {
-                lines.add(line.replace(".", ""));
+                line = line.trim();
+                if (line.isEmpty()) continue;
+                
+                String[] parts = line.split("\\.");
+                if (parts.length != 4) {
+                    System.err.println("Warning: skipping invalid IP address: " + line);
+                    continue;
+                }
+
+                try {
+                    int[] segments = new int[4];
+                    for (int i = 0; i < 4; i++) {
+                        segments[i] = Integer.parseInt(parts[i]);
+                        if (segments[i] < 0 || segments[i] > 255) {
+                            throw new NumberFormatException("Segment out of range 0-255");
+                        }
+                    }
+                    addresses.add(segments);
+                } catch (NumberFormatException e) {
+                    System.err.println("Warning: skipping invalid IP segment in line: " + line);
+                }
             }
         }
-        return lines;
+        return addresses;
     }
 
     /** Resolve the base data directory, works whether run from charmap/ or app/. */
@@ -145,5 +148,4 @@ public class IpPrecomputeRunner {
         if (Files.exists(fromApp)) return fromApp;
         if (Files.exists(fromRoot)) return fromRoot;
         throw new RuntimeException("Cannot find resources/data directory. Run from charmap/ or app/ directory.");
-    }
-}
+    }}
