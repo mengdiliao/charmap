@@ -1,5 +1,0 @@
-omegaX
-admin_root
-test_user1
-guest_01
-root_admin
