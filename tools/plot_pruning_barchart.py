@@ -27,7 +27,7 @@ from typing import Iterable
 import matplotlib.pyplot as plt
 
 
-PARTITION_SIZES = [10, 50, 100, 200, 500]
+PARTITION_SIZES = [5, 10, 50, 100, 200, 500]
 
 SERIES_FILES = {
     "ip_addresses": "ip_charmap_P{p}_query.txt",

@@ -31,7 +31,7 @@ import java.util.List;
 public class NameCharmapPrecomputeRunner {
 
     private static final int LMAX = 10;
-    private static final int[] PARTITION_SIZES = {10, 50, 100, 200, 500};
+    private static final int[] PARTITION_SIZES = {5, 10, 50, 100, 200, 500};
 
     public static void main(String[] args) throws Exception {
         Path baseDir = IpPrecomputeRunner.resolveBaseDir();
