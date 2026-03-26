@@ -1,43 +1,31 @@
 # charmap
 
-## 3.12 Meeting Accomplishments
+## 3.25 Meeting Accomplishments
+### Scope
+Implemented and validated a Charmap-focused workflow for both IP and name datasets.
+Built a unified Charmap evaluation pipeline for IP and name datasets, then compared pruning performance across partition sizes and data ordering.
 
-### IP Address Experiment
-Implemented a complete experimental pipeline for evaluating MinMax and Charmap index performance on IP address datasets:
-- **Precomputation phase**: Builds and precomputes indexes for multiple partition sizes (P = {10, 100, 1000, 10000})
-- **Query evaluation phase**: Measures how effectively each index method prunes partitions during query processing
-- **Data infrastructure**: Added support for IP address datasets with tools for generation and analysis
+**Findings:**
+- Sorted datasets maintain near-100% pruning across all tested partition sizes.
+- Unsorted datasets are much more sensitive to partition size.
+- Smaller partition sizes give much better pruning for unsorted data, and adding `P=5` improves pruning compared with larger `P`.
+- Variability (error bars) is low for sorted datasets and higher for unsorted datasets, especially at medium/large partition sizes.
 
-### Running the Experiments
+### Commands
 ```bash
-# Precompute indexes
-./gradlew :app:run -PmainClass=charmap.IpPrecomputeRunner
 
-# Evaluate query performance
-./gradlew :app:run -PmainClass=charmap.IpQueryRunner
-```
+# IP Charmap precompute (single run, parameterized)
+./gradlew :app:run -PmainClass=charmap.IPCharmapPrecomputeRunner --args="--input <input> --output <output> --p <P> --lmax 12"
 
-### Experiment Results
-**MinMax Index:**
-- P=10: ✅ Excellent pruning (~300-400 partitions per query)
-- P=100: ⚠️ Significant pruning drop
-- P≥1000: ❌ Minimal pruning (near zero)
+# IP Charmap query over all precomputed files
+./gradlew :app:run -PmainClass=charmap.IPCharmapQueryRunner
 
-**Charmap Index:**
-- P=10: ✅ Excellent pruning (~97k+ partitions per query) - far superior to MinMax
-- P=100: ⚠️ Minimal pruning (~8 partitions)
-- P≥1000: ❌ No pruning (zero)
+# Name Charmap precompute (all configured partition sizes)
+./gradlew :app:run -PmainClass=charmap.NameCharmapPrecomputeRunner
 
-**Key Finding:** Both methods degrade with larger partition sizes. Small partitions (P=10) maintain discriminative summaries, while large partitions (P≥1000) become too loose to prune effectively. Charmap significantly outperforms MinMax at small partition sizes.
+# Name Charmap query over all precomputed files
+./gradlew :app:run -PmainClass=charmap.NameCharmapQueryRunner
 
-
-## Building & Running
-
-```bash
-# Build and run tests
-./gradlew build test
-
-# Run example queries
-./gradlew run --args="charmap <input> <output> <search_string> <L> <LMAX>"
-./gradlew run --args="minmax <input> <output> <search_string> <L>"
+# Plot pruning comparison
+python3 tools/plot_pruning_barchart.py
 ```

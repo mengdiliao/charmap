@@ -1,2 +1,18 @@
+extract a colomn from datasets from internet:
 python3 tools/data_generator/extract_network_column.py
-python3 tools/data_generator/extract_names_column.py
+python3 tools/data_generator/extract_english_first_last_names.py \
+  --input tools/data_generator/US.csv \
+  --limit 1000000 \
+  --output app/src/main/resources/data/name_experiment/1m_names.txt
+
+shuffle original ip addresses:
+python3 tools/data_generator/shuffle_rows.py app/src/main/resources/data/ip_experiment/1m_ip_addresses.txt
+
+sort original names:
+python3 tools/data_generator/sort_1m_names.py
+
+precompute:
+./gradlew :app:run -PmainClass=charmap.IPCharmapPrecomputeRunner --args="--input src/main/resources/data/ip_experiment/sorted_1m_ip_addresses.txt --output src/main/resources/data/results/precompute/sorted_ip_charmap_P10.txt --p 10 --lmax 12"
+
+get 1000 sample:
+python3 tools/data_generator/sample_rows.py app/src/main/resources/data/ip_experiment/1m_ip_addresses.txt app/src/main/resources/data/ip_experiment/1000_query_ip.txt 1000
