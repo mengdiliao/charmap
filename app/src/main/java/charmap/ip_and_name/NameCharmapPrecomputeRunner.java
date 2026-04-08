@@ -5,6 +5,7 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,49 +15,142 @@ import java.util.List;
  * Rules:
  * - Track first name only (ignore last name and the rest of the line)
  * - Keep uppercase/lowercase as-is
- * - Use LMAX = 10
- * - Partition sizes P in {10, 50, 100, 200, 500}
+ * - LMAX is provided via CLI argument --lmax
+ * - Partition sizes P in {5, 10, 50, 100, 200, 500, 1000, 2000}
  *
- * Inputs:
- * - data/name_experiment/1m_names.txt
- * - data/name_experiment/sorted_1m_names.txt
- *
- * Outputs:
- * - data/results/precompute/name_charmap/name_charmap_P{P}.txt
- * - data/results/precompute/name_charmap/sorted_name_charmap_P{P}.txt
+ * Computes Charmap summaries for a single input file and a single partition size P,
+ * then writes a single output file.
  *
  * Run with:
- * ./gradlew :app:run -PmainClass=charmap.NameCharmapPrecomputeRunner
+ * ./gradlew :app:run -PmainClass=charmap.NameCharmapPrecomputeRunner --args="--input <inputPath> --output <outputPath> --lmax <lmax> --p <partitionSize>"
  */
 public class NameCharmapPrecomputeRunner {
 
-    private static final int LMAX = 10;
-    private static final int[] PARTITION_SIZES = {5, 10, 50, 100, 200, 500};
+    private static final int[] PARTITION_SIZES = {5, 10, 50, 100, 200, 500, 1000, 2000};
 
     public static void main(String[] args) throws Exception {
-        Path baseDir = IpPrecomputeRunner.resolveBaseDir();
-        Path outputDir = baseDir.resolve("results/precompute/name_charmap");
-        Files.createDirectories(outputDir);
+        CliConfig config = parseArgs(args);
 
-        Path inputNames = baseDir.resolve("name_experiment/1m_names.txt");
-        Path inputSortedNames = baseDir.resolve("name_experiment/sorted_1m_names.txt");
+        System.out.println("Reading input: " + config.inputPath);
+        List<String> firstNames = readFirstNames(config.inputPath);
+        System.out.println("Loaded " + firstNames.size() + " first names.");
 
-        precomputeSingleDataset(inputNames, "name_charmap", outputDir);
-        precomputeSingleDataset(inputSortedNames, "sorted_name_charmap", outputDir);
+        Path resolvedOutputPath = withParamSuffix(config.outputPath, config.partitionSize, config.lmax);
+        writeCharmapPrecompute(firstNames, resolvedOutputPath, config.partitionSize, config.lmax);
+        System.out.println("Wrote precompute file: " + resolvedOutputPath);
 
         System.out.println("Name Charmap precompute complete.");
     }
 
-    private static void precomputeSingleDataset(Path inputPath, String outputPrefix, Path outputDir) throws IOException {
-        System.out.println("Reading input: " + inputPath);
-        List<String> firstNames = readFirstNames(inputPath);
-        System.out.println("Loaded " + firstNames.size() + " first names.");
+    private static CliConfig parseArgs(String[] args) {
+        String input = null;
+        String output = null;
+        Integer partitionSize = null;
+        Integer lmax = null;
 
-        for (int p : PARTITION_SIZES) {
-            Path outFile = outputDir.resolve(outputPrefix + "_P" + p + ".txt");
-            writeCharmapPrecompute(firstNames, outFile, p, LMAX);
-            System.out.println("  Wrote: " + outFile.getFileName());
+        for (int i = 0; i < args.length; i++) {
+            String arg = args[i];
+            if ("--input".equals(arg)) {
+                input = requireNext(args, ++i, "--input");
+            } else if ("--output".equals(arg)) {
+                output = requireNext(args, ++i, "--output");
+            } else if ("--p".equals(arg)) {
+                partitionSize = parseAllowedPartitionSize(requireNext(args, ++i, "--p"));
+            } else if ("--lmax".equals(arg)) {
+                lmax = parsePositiveInt(requireNext(args, ++i, "--lmax"), "--lmax");
+            } else if ("--help".equals(arg) || "-h".equals(arg)) {
+                printUsageAndExit(0);
+            } else {
+                throw new IllegalArgumentException("Unknown argument: " + arg + "\n" + usageText());
+            }
         }
+
+        if (input == null || output == null || partitionSize == null || lmax == null) {
+            throw new IllegalArgumentException("Missing required arguments.\n" + usageText());
+        }
+
+        Path inputPath = Paths.get(input);
+        Path outputPath = Paths.get(output);
+
+        if (!Files.exists(inputPath)) {
+            throw new IllegalArgumentException("Input file does not exist: " + inputPath);
+        }
+
+        Path outputParent = outputPath.getParent();
+        if (outputParent != null) {
+            try {
+                Files.createDirectories(outputParent);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to create output directory: " + outputParent, e);
+            }
+        }
+
+        return new CliConfig(inputPath, outputPath, partitionSize, lmax);
+    }
+
+    private static String requireNext(String[] args, int index, String flag) {
+        if (index >= args.length) {
+            throw new IllegalArgumentException("Missing value for " + flag + "\n" + usageText());
+        }
+        return args[index];
+    }
+
+    private static int parsePositiveInt(String value, String flag) {
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed <= 0) {
+                throw new IllegalArgumentException(flag + " must be > 0, got: " + value);
+            }
+            return parsed;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(flag + " must be an integer, got: " + value);
+        }
+    }
+
+    private static int parseAllowedPartitionSize(String value) {
+        int parsed = parsePositiveInt(value, "--p");
+        for (int allowed : PARTITION_SIZES) {
+            if (allowed == parsed) {
+                return parsed;
+            }
+        }
+        throw new IllegalArgumentException("--p must be one of " + partitionSizesText() + ", got: " + value);
+    }
+
+    private static String partitionSizesText() {
+        StringBuilder sb = new StringBuilder("{");
+        for (int i = 0; i < PARTITION_SIZES.length; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(PARTITION_SIZES[i]);
+        }
+        sb.append('}');
+        return sb.toString();
+    }
+
+    private static String usageText() {
+        return "Usage: --input <inputPath> --output <outputPath> --lmax <lmax> --p <partitionSize>"
+                + "\nAllowed partition sizes: " + partitionSizesText();
+    }
+
+    private static Path withParamSuffix(Path outputPath, int p, int lmax) {
+        String fileName = outputPath.getFileName().toString();
+        int dotIndex = fileName.lastIndexOf('.');
+        String stem = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
+        String ext = dotIndex > 0 ? fileName.substring(dotIndex) : ".txt";
+
+        // Avoid duplicate suffixes when caller already includes them.
+        stem = stem.replaceAll("_P\\d+(_LMAX\\d+)?$", "");
+
+        String newFileName = stem + "_P" + p + "_LMAX" + lmax + ext;
+        Path parent = outputPath.getParent();
+        return parent == null ? Path.of(newFileName) : parent.resolve(newFileName);
+    }
+
+    private static void printUsageAndExit(int code) {
+        System.out.println(usageText());
+        System.exit(code);
     }
 
     static List<String> readFirstNames(Path file) throws IOException {
@@ -140,5 +234,8 @@ public class NameCharmapPrecomputeRunner {
         }
 
         return summaries;
+    }
+
+    private record CliConfig(Path inputPath, Path outputPath, int partitionSize, int lmax) {
     }
 }

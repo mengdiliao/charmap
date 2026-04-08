@@ -1,18 +1,29 @@
-extract a colomn from datasets from internet:
-python3 tools/data_generator/extract_network_column.py
-python3 tools/data_generator/extract_english_first_last_names.py \
-  --input tools/data_generator/US.csv \
-  --limit 1000000 \
-  --output app/src/main/resources/data/name_experiment/1m_names.txt
+Precompute command example
+Name Charmap with P in {5, 10, 50, 100, 200, 500, 1000, 2000}
+for P in 5 10 50 100 200 500 1000 2000; do
+  ./gradlew :app:run -PmainClass=charmap.NameCharmapPrecomputeRunner --args="--input src/main/resources/data/name_experiment/1m_names.txt --output src/main/resources/data/results/precompute/name_charmap/name_charmap --lmax 12 --p ${P}"
+done
 
-shuffle original ip addresses:
-python3 tools/data_generator/shuffle_rows.py app/src/main/resources/data/ip_experiment/1m_ip_addresses.txt
+Query command to IP query (strategy: minmax) example 
+./gradlew :app:run -PmainClass=charmap.IPQueryRunner --args="--strategy minmax --query src/main/resources/data/ip_experiment/1000_query_ips.txt --precomputeDir src/main/resources/data/results/precompute/ip_minmax --outputDir src/main/resources/data/results/query/ip_minmax"
 
-sort original names:
-python3 tools/data_generator/sort_1m_names.py
+generate plotting 
+python3 tools/plot_pruning_barchart.py --query-dir app/src/main/resources/data/results/query --lmax 12 --output app/src/main/resources/data/results/query/pruning_summary_bar_chart.png
 
-precompute:
-./gradlew :app:run -PmainClass=charmap.IPCharmapPrecomputeRunner --args="--input src/main/resources/data/ip_experiment/sorted_1m_ip_addresses.txt --output src/main/resources/data/results/precompute/sorted_ip_charmap_P10.txt --p 10 --lmax 12"
+fix partition size experiment:
+for LMAX in 3 5 8 12; do
+  # Precompute (P=200)
+  ./gradlew :app:run -PmainClass=charmap.IPCharmapPrecomputeRunner --args="--input src/main/resources/data/ip_experiment/1m_ip_addresses.txt --output src/main/resources/data/results/fixed_p_lmax/p200/precompute/ip_charmap/ip_charmap --lmax ${LMAX} --p 200"
+  ./gradlew :app:run -PmainClass=charmap.NameCharmapPrecomputeRunner --args="--input src/main/resources/data/name_experiment/1m_names.txt --output src/main/resources/data/results/fixed_p_lmax/p200/precompute/name_charmap/name_charmap --lmax ${LMAX} --p 200"
+  ./gradlew :app:run -PmainClass=charmap.IPMinmaxPrecomputeRunner --args="--input src/main/resources/data/ip_experiment/1m_ip_addresses.txt --output src/main/resources/data/results/fixed_p_lmax/p200/precompute/ip_minmax/ip_minmax --lmax ${LMAX} --p 200"
+  ./gradlew :app:run -PmainClass=charmap.NameMinmaxPrecomputeRunner --args="--input src/main/resources/data/name_experiment/1m_names.txt --output src/main/resources/data/results/fixed_p_lmax/p200/precompute/name_minmax/name_minmax --lmax ${LMAX} --p 200"
 
-get 1000 sample:
-python3 tools/data_generator/sample_rows.py app/src/main/resources/data/ip_experiment/1m_ip_addresses.txt app/src/main/resources/data/ip_experiment/1000_query_ip.txt 1000
+  # Query (reads precompute above, writes query outputs)
+  ./gradlew :app:run -PmainClass=charmap.IPQueryRunner --args="--strategy charmap --query src/main/resources/data/ip_experiment/1000_query_ips.txt --precomputeDir src/main/resources/data/results/fixed_p_lmax/p200/precompute/ip_charmap --outputDir src/main/resources/data/results/fixed_p_lmax/p200/query/ip_charmap"
+  ./gradlew :app:run -PmainClass=charmap.IPQueryRunner --args="--strategy minmax --query src/main/resources/data/ip_experiment/1000_query_ips.txt --precomputeDir src/main/resources/data/results/fixed_p_lmax/p200/precompute/ip_minmax --outputDir src/main/resources/data/results/fixed_p_lmax/p200/query/ip_minmax"
+  ./gradlew :app:run -PmainClass=charmap.NameQueryRunner --args="--strategy charmap --query src/main/resources/data/name_experiment/1000_query_names.txt --precomputeDir src/main/resources/data/results/fixed_p_lmax/p200/precompute/name_charmap --outputDir src/main/resources/data/results/fixed_p_lmax/p200/query/name_charmap"
+  ./gradlew :app:run -PmainClass=charmap.NameQueryRunner --args="--strategy minmax --query src/main/resources/data/name_experiment/1000_query_names.txt --precomputeDir src/main/resources/data/results/fixed_p_lmax/p200/precompute/name_minmax --outputDir src/main/resources/data/results/fixed_p_lmax/p200/query/name_minmax"
+done
+
+create p_fix plot:
+python3 tools/plot_pruning_fixed_p_lmax.py --query-dir app/src/main/resources/data/results/fixed_p_lmax/p200/query --p 200 --lmax-values 3,5,8,12 --output app/src/main/resources/data/results/fixed_p_lmax/p200/plots/pruning_vs_lmax_P200.png

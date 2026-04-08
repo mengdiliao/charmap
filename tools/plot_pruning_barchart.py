@@ -6,14 +6,16 @@ X-axis: partition size P
 Y-axis: average pruned percentage = (pruned_partitions / total_partitions) * 100
 Error bar: standard deviation of per-query pruned percentages
 
-Per partition size, the script plots 4 bars:
-- ip_addresses
-- sorted_ip_addresses
-- names
-- sorted_names
+Per partition size, the script plots 4 bars in this order:
+- ip_minmax
+- ip_charmap
+- name_minmax
+- name_charmap
 
 Expected inputs:
+- app/src/main/resources/data/results/query/ip_minmax/*_query.txt
 - app/src/main/resources/data/results/query/ip_charmap/*_query.txt
+- app/src/main/resources/data/results/query/name_minmax/*_query.txt
 - app/src/main/resources/data/results/query/name_charmap/*_query.txt
 """
 
@@ -27,20 +29,15 @@ from typing import Iterable
 import matplotlib.pyplot as plt
 
 
-PARTITION_SIZES = [5, 10, 50, 100, 200, 500]
+PARTITION_SIZES = [5, 10, 50, 100, 200, 500, 1000, 2000]
 
-SERIES_FILES = {
-    "ip_addresses": "ip_charmap_P{p}_query.txt",
-    "sorted_ip_addresses": "sorted_ip_charmap_P{p}_query.txt",
-    "names": "name_charmap_P{p}_query.txt",
-    "sorted_names": "sorted_name_charmap_P{p}_query.txt",
-}
+SERIES_ORDER = ["ip_minmax", "ip_charmap", "name_minmax", "name_charmap"]
 
 SERIES_STYLE = {
-    "ip_addresses": "#1f77b4",
-    "sorted_ip_addresses": "#ff7f0e",
-    "names": "#2ca02c",
-    "sorted_names": "#d62728",
+    "ip_minmax": "#4C78A8",
+    "ip_charmap": "#F58518",
+    "name_minmax": "#54A24B",
+    "name_charmap": "#B279A2",
 }
 
 
@@ -89,20 +86,14 @@ def stddev(values: Iterable[float]) -> float:
     return math.sqrt(var)
 
 
-def collect_series_data(base_query_dir: Path) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
-    means: dict[str, list[float]] = {k: [] for k in SERIES_FILES}
-    errors: dict[str, list[float]] = {k: [] for k in SERIES_FILES}
-
-    ip_dir = base_query_dir / "ip_charmap"
-    name_dir = base_query_dir / "name_charmap"
+def collect_series_data(base_query_dir: Path, lmax: int) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
+    means: dict[str, list[float]] = {k: [] for k in SERIES_ORDER}
+    errors: dict[str, list[float]] = {k: [] for k in SERIES_ORDER}
 
     for p in PARTITION_SIZES:
-        for series, pattern in SERIES_FILES.items():
-            filename = pattern.format(p=p)
-            if "name" in series:
-                file_path = name_dir / filename
-            else:
-                file_path = ip_dir / filename
+        for series in SERIES_ORDER:
+            filename = f"{series}_P{p}_LMAX{lmax}_query.txt"
+            file_path = base_query_dir / series / filename
 
             partitions, pruned_counts = parse_query_result_file(file_path)
             percentages = [(count / partitions) * 100.0 for count in pruned_counts]
@@ -125,11 +116,10 @@ def plot_chart(
     x = list(range(len(PARTITION_SIZES)))
     labels = [str(p) for p in PARTITION_SIZES]
 
-    series_order = ["ip_addresses", "sorted_ip_addresses", "names", "sorted_names"]
     bar_width = 0.2
     offsets = [-1.5 * bar_width, -0.5 * bar_width, 0.5 * bar_width, 1.5 * bar_width]
 
-    for idx, series in enumerate(series_order):
+    for idx, series in enumerate(SERIES_ORDER):
         xpos = [xi + offsets[idx] for xi in x]
         bars = ax.bar(
             xpos,
@@ -137,6 +127,7 @@ def plot_chart(
             yerr=errors[series],
             width=bar_width,
             capsize=4,
+            error_kw={"elinewidth": 0.25, "capthick": 0.25},
             color=SERIES_STYLE[series],
             alpha=0.9,
             label=series,
@@ -158,9 +149,9 @@ def plot_chart(
     ax.set_xticklabels(labels)
     ax.tick_params(axis="x", pad=1)
     ax.set_xlabel("Partition Size (P)")
-    ax.set_ylabel("Average Pruned Partitions (%)")
+    ax.set_ylabel("Pruning Percentage (%)")
     ax.set_title(title)
-    ax.legend(title="Dataset", loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0.0)
+    ax.legend(title="Series", loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0.0)
 
     fig.tight_layout(rect=(0, 0, 0.82, 1))
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -176,7 +167,13 @@ def main() -> None:
         "--query-dir",
         type=Path,
         default=Path("app/src/main/resources/data/results/query"),
-        help="Base directory containing ip_charmap/ and name_charmap/ query files",
+        help="Base directory containing ip_minmax/, ip_charmap/, name_minmax/, name_charmap/",
+    )
+    parser.add_argument(
+        "--lmax",
+        type=int,
+        default=12,
+        help="LMAX value embedded in query result filenames",
     )
     parser.add_argument(
         "--output",
@@ -187,12 +184,12 @@ def main() -> None:
     parser.add_argument(
         "--title",
         type=str,
-        default="Charmap Pruning by Partition Size",
+        default="Pruning Percentage by Partition Size",
         help="Chart title",
     )
     args = parser.parse_args()
 
-    means, errors = collect_series_data(args.query_dir)
+    means, errors = collect_series_data(args.query_dir, args.lmax)
     plot_chart(means, errors, args.output, args.title)
 
     print(f"Query base dir: {args.query_dir.resolve()}")

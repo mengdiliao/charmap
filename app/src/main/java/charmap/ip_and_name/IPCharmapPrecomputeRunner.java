@@ -16,13 +16,17 @@ import java.util.List;
  * - Ignore CIDR suffix (anything after '/')
  * - Convert x.x.x.x to a fixed-width 12-digit key (each octet zero-padded to 3 digits)
  *
- * Computes Charmap summaries for a single partition size P and a single input file,
+ * Uses partition sizes P in {5, 10, 50, 100, 200, 500, 1000, 2000}.
+ *
+ * Computes Charmap summaries for a single input file and a single partition size P,
  * then writes a single output file.
  *
  * Run with:
- * ./gradlew :app:run -PmainClass=charmap.IPCharmapPrecomputeRunner --args="--input <inputPath> --output <outputPath> --p <partitionSize> --lmax <lmax>"
+ * ./gradlew :app:run -PmainClass=charmap.IPCharmapPrecomputeRunner --args="--input <inputPath> --output <outputPath> --lmax <lmax> --p <partitionSize>"
  */
 public class IPCharmapPrecomputeRunner {
+
+    private static final int[] PARTITION_SIZES = {5, 10, 50, 100, 200, 500, 1000, 2000};
 
     public static void main(String[] args) throws Exception {
         CliConfig config = parseArgs(args);
@@ -31,8 +35,10 @@ public class IPCharmapPrecomputeRunner {
         List<String> normalizedIps = readNormalizeTo12Digit(config.inputPath);
         System.out.println("Loaded " + normalizedIps.size() + " normalized addresses.");
 
-        writeCharmapPrecompute(normalizedIps, config.outputPath, config.partitionSize, config.lmax);
-        System.out.println("Wrote precompute file: " + config.outputPath);
+        Path resolvedOutputPath = withParamSuffix(config.outputPath, config.partitionSize, config.lmax);
+        writeCharmapPrecompute(normalizedIps, resolvedOutputPath, config.partitionSize, config.lmax);
+        System.out.println("Wrote precompute file: " + resolvedOutputPath);
+
         System.out.println("Charmap precompute complete.");
     }
 
@@ -49,7 +55,7 @@ public class IPCharmapPrecomputeRunner {
             } else if ("--output".equals(arg)) {
                 output = requireNext(args, ++i, "--output");
             } else if ("--p".equals(arg)) {
-                partitionSize = parsePositiveInt(requireNext(args, ++i, "--p"), "--p");
+                partitionSize = parseAllowedPartitionSize(requireNext(args, ++i, "--p"));
             } else if ("--lmax".equals(arg)) {
                 lmax = parsePositiveInt(requireNext(args, ++i, "--lmax"), "--lmax");
             } else if ("--help".equals(arg) || "-h".equals(arg)) {
@@ -101,8 +107,45 @@ public class IPCharmapPrecomputeRunner {
         }
     }
 
+    private static int parseAllowedPartitionSize(String value) {
+        int parsed = parsePositiveInt(value, "--p");
+        for (int allowed : PARTITION_SIZES) {
+            if (allowed == parsed) {
+                return parsed;
+            }
+        }
+        throw new IllegalArgumentException("--p must be one of " + partitionSizesText() + ", got: " + value);
+    }
+
+    private static String partitionSizesText() {
+        StringBuilder sb = new StringBuilder("{");
+        for (int i = 0; i < PARTITION_SIZES.length; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(PARTITION_SIZES[i]);
+        }
+        sb.append('}');
+        return sb.toString();
+    }
+
     private static String usageText() {
-        return "Usage: --input <inputPath> --output <outputPath> --p <partitionSize> --lmax <lmax>";
+        return "Usage: --input <inputPath> --output <outputPath> --lmax <lmax> --p <partitionSize>"
+                + "\nAllowed partition sizes: " + partitionSizesText();
+    }
+
+    private static Path withParamSuffix(Path outputPath, int p, int lmax) {
+        String fileName = outputPath.getFileName().toString();
+        int dotIndex = fileName.lastIndexOf('.');
+        String stem = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
+        String ext = dotIndex > 0 ? fileName.substring(dotIndex) : ".txt";
+
+        // Avoid duplicate suffixes when caller already includes them.
+        stem = stem.replaceAll("_P\\d+(_LMAX\\d+)?$", "");
+
+        String newFileName = stem + "_P" + p + "_LMAX" + lmax + ext;
+        Path parent = outputPath.getParent();
+        return parent == null ? Path.of(newFileName) : parent.resolve(newFileName);
     }
 
     private static void printUsageAndExit(int code) {
