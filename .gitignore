@@ -2,6 +2,9 @@
 **/build/
 !**/src/**/build/
 
+# macOS
+.DS_Store
+
 # Ignore Gradle GUI config
 gradle-app.setting
 
@@ -22,3 +25,5 @@ gradle-app.setting
 
 # Ignore Gradle build output directory
 build
+tools/data_generator/
+app/bin/
